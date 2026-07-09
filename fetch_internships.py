@@ -18,6 +18,7 @@ Usage:
 """
 
 import argparse
+import datetime
 import re
 import sys
 import time
@@ -69,6 +70,11 @@ def _is_us(locations):
     return any(_is_us_location(l) for l in (locations or []))
 
 
+def _fmt_date(dt):
+    """Format a datetime.date as M/D/YY to match the sheet (e.g. 7/9/26)."""
+    return f"{dt.month}/{dt.day}/{dt.year % 100:02d}"
+
+
 def load_listings_json(url, source):
     """Load a SimplifyJobs-style listings.json and return recent, active US internships."""
     cutoff = time.time() - DAYS * 86400
@@ -86,11 +92,13 @@ def load_listings_json(url, source):
         details = (it.get("url") or "").strip()
         if not company or not position:
             continue
+        posted = datetime.date.fromtimestamp(it["date_posted"])
         out.append({
             "company": company,
             "position": position,
             "details": details,
             "portal": "",
+            "date": _fmt_date(posted),
             "source": source,
         })
     return out
@@ -125,20 +133,36 @@ def load_speedyapply():
         if not company or not position:
             continue
         href = _HREF_RE.search(posting_cell)
+        # speedyapply gives an age (e.g. "3d"), not an exact date -> derive it.
+        posted = datetime.date.today() - datetime.timedelta(days=int(m.group(1)))
         out.append({
             "company": company,
             "position": position,
             "details": href.group(1) if href else "",
             "portal": "",
+            "date": _fmt_date(posted),
             "source": "speedyapply",
         })
     return out
 
 
+# Trailing " (M/D/YY)" date suffix we append to the Company cell for display.
+_DATE_SUFFIX_RE = re.compile(r"\s*\(\d{1,2}/\d{1,2}/\d{2,4}\)\s*$")
+
+
+def _clean_company(company):
+    """Strip the display-only date suffix so dedup matches the real company name."""
+    return _DATE_SUFFIX_RE.sub("", company or "")
+
+
 def _key(company, position):
-    """Normalized identity used everywhere for dedup: case- and whitespace-insensitive."""
+    """Normalized identity used everywhere for dedup: case- and whitespace-insensitive.
+
+    Ignores the display-only date suffix so the same role isn't re-added just
+    because its posted date differs slightly between sources or runs.
+    """
     return (
-        re.sub(r"\s+", " ", company or "").strip().lower(),
+        re.sub(r"\s+", " ", _clean_company(company)).strip().lower(),
         re.sub(r"\s+", " ", position or "").strip().lower(),
     )
 
@@ -217,9 +241,15 @@ def existing_keys(worksheet):
     return keys
 
 
+def company_display(item):
+    """Company name with the posting date appended, e.g. 'Meta (7/2/26)'."""
+    date = item.get("date")
+    return f"{item['company']} ({date})" if date else item["company"]
+
+
 def to_row(item):
     # Company | Position | Date Applied | Application Status | Details | Applicant Portal
-    return [item["company"], item["position"], "", "", item["details"], item["portal"]]
+    return [company_display(item), item["position"], "", "", item["details"], item["portal"]]
 
 
 # --- Main -----------------------------------------------------------------
@@ -236,7 +266,7 @@ def main():
 
     if args.dry_run:
         for it in items:
-            print(f"  {it['company']:<28} | {it['position'][:60]:<60} | {it['details']}")
+            print(f"  {company_display(it):<28} | {it['position'][:60]:<60} | {it['details']}")
         print(f"\n[dry-run] Would append {len(items)} row(s). No changes made.")
         return
 
