@@ -7,6 +7,12 @@ and appends them as new rows to a Google Sheet:
 - [vanshb03/Summer2027-Internships](https://github.com/vanshb03/Summer2027-Internships)
 - [speedyapply/2027-AI-College-Jobs](https://github.com/speedyapply/2027-AI-College-Jobs)
 
+Only **software/tech roles** are included — product/product-management, hardware, and other
+non-software listings are skipped, as are **grad-only roles** (PhD, Master's, or
+graduate-candidate positions). Roles open to undergrads (e.g. "BS/MS") are kept. Each repo exposes these fields
+differently, so the filter checks every signal available: Simplify's `category` and `degrees`
+fields plus the position title text (the only signal vanshb03 and speedyapply provide).
+
 New rows are written as: `Company | Position | Date Applied | Application Status | Details | Applicant Portal`.
 `Date Applied` and `Application Status` are left blank so you fill them in as you apply.
 `Details` holds the application link. Rows already in the sheet (matched by Company + Position)

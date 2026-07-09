@@ -7,6 +7,12 @@ Sources:
   - vanshb03/Summer2027-Internships       (dev branch, listings.json)
   - speedyapply/2027-AI-College-Jobs      (main branch, README.md markdown tables)
 
+Only technical roles are kept: product/management and other non-engineering roles
+are skipped, as are grad-only roles (PhD/Master's/graduate), while roles open to
+undergrads (e.g. "BS/MS") are kept. Each repo marks these differently, so the filter
+uses whatever it offers -- Simplify's category/degrees fields, and the title text
+(the only signal vanshb03 and speedyapply provide). See keep_role().
+
 Sheet columns (in order):
   Company | Position | Date Applied | Application Status | Details | Applicant Portal
 
@@ -70,6 +76,98 @@ def _is_us(locations):
     return any(_is_us_location(l) for l in (locations or []))
 
 
+# --- Role filtering: keep technical roles, drop grad-only roles ------------
+#
+# The three repos expose role type differently, so we check every signal each
+# one offers:
+#   * Simplify listings.json carry a "category" and a "degrees" array.
+#   * vansh listings.json have neither (category is null), so we fall back to
+#     the title text.
+#   * speedyapply is a markdown table with only a title, so likewise.
+
+# Simplify categories we consider technical. Anything else (e.g. "Product",
+# "Product Management", "Hardware") is dropped.
+TECH_CATEGORIES = {
+    "ai/ml/data",
+    "software",
+    "software engineering",
+    "quant",
+    "quantitative finance",
+    "data science, ai & machine learning",
+}
+
+# Simplify "degrees" values an undergraduate can apply with. If a listing names
+# degrees but none of these, it's a grad-only role and we skip it.
+UNDERGRAD_DEGREES = {"bachelor's", "associate's", "certificate", "bootcamp", "incomplete"}
+
+# Title fragments marking a non-technical (product/management/business) role.
+_NONTECH_TITLE_RE = re.compile(
+    r"\b(?:"
+    r"product manager|product management|product owner|product marketing|"
+    r"program manager|project manager|"
+    r"business analyst|business development|"
+    r"marketing|sales|recruit|"
+    r"ux designer|ui designer|ux/ui|product design(?:er)?"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Title fragments marking a hardware role. vansh/speedyapply have no category
+# field, so titles are the only signal; this also catches hardware roles filed
+# under another Simplify category. "Embedded" is intentionally omitted since
+# "embedded software" roles are software.
+_HARDWARE_TITLE_RE = re.compile(
+    r"\b(?:"
+    r"hardware|firmware|fpga|asic|vlsi|pcb|rtl|silicon|semiconductor|"
+    r"electrical engineer(?:ing)?|analog|circuit|rf engineer"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Title fragments marking a grad-only (PhD / Master's / graduate) role.
+_PHD_TITLE_RE = re.compile(r"\b(?:ph\.?d|doctoral|mba)\b", re.IGNORECASE)
+_MASTERS_TITLE_RE = re.compile(r"\b(?:master'?s?|m\.?s\.?|m\.?sc)\b", re.IGNORECASE)
+_GRADUATE_TITLE_RE = re.compile(r"(?<!under)\bgraduate\b", re.IGNORECASE)
+# Signals the role is also open to undergrads (e.g. "BS/MS"), which keeps it in.
+_UNDERGRAD_TITLE_RE = re.compile(r"\b(?:bachelor'?s?|b\.?s\.?|undergrad)", re.IGNORECASE)
+
+
+def _degrees_allow_undergrad(degrees):
+    """True unless a listing names degrees that are all graduate-level."""
+    if not degrees:                              # empty/unspecified -> can't exclude
+        return True
+    return any(d.strip().lower() in UNDERGRAD_DEGREES for d in degrees)
+
+
+def _is_grad_only_title(title):
+    """Title reads as a PhD / Master's / graduate role with no undergrad path."""
+    title = title or ""
+    marked_grad = (_PHD_TITLE_RE.search(title) or _MASTERS_TITLE_RE.search(title)
+                   or _GRADUATE_TITLE_RE.search(title))
+    if not marked_grad:
+        return False
+    return not _UNDERGRAD_TITLE_RE.search(title)  # keep "BS/MS"-style roles
+
+
+def keep_role(position, category=None, degrees=None):
+    """Keep only technical, undergrad-eligible roles.
+
+    Any provided signal can veto a role; missing signals (None) are ignored so a
+    repo that omits a field simply relies on the ones it does provide.
+    """
+    if category is not None and category.strip().lower() not in TECH_CATEGORIES:
+        return False
+    if _NONTECH_TITLE_RE.search(position or ""):
+        return False
+    if _HARDWARE_TITLE_RE.search(position or ""):
+        return False
+    if not _degrees_allow_undergrad(degrees):
+        return False
+    if _is_grad_only_title(position):
+        return False
+    return True
+
+
 def _fmt_date(dt):
     """Format a datetime.date as M/D/YY to match the sheet (e.g. 7/9/26)."""
     return f"{dt.month}/{dt.day}/{dt.year % 100:02d}"
@@ -91,6 +189,8 @@ def load_listings_json(url, source):
         position = (it.get("title") or "").strip()
         details = (it.get("url") or "").strip()
         if not company or not position:
+            continue
+        if not keep_role(position, it.get("category"), it.get("degrees")):
             continue
         posted = datetime.date.fromtimestamp(it["date_posted"])
         out.append({
@@ -131,6 +231,8 @@ def load_speedyapply():
         company = _strip_tags(company_cell)
         position = _strip_tags(position_cell)
         if not company or not position:
+            continue
+        if not keep_role(position):             # no category/degree fields here
             continue
         href = _HREF_RE.search(posting_cell)
         # speedyapply gives an age (e.g. "3d"), not an exact date -> derive it.
