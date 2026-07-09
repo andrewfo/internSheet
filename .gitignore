@@ -1,0 +1,9 @@
+# Google OAuth secrets - never commit
+credentials.json
+token.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
