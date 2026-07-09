@@ -135,6 +135,14 @@ def load_speedyapply():
     return out
 
 
+def _key(company, position):
+    """Normalized identity used everywhere for dedup: case- and whitespace-insensitive."""
+    return (
+        re.sub(r"\s+", " ", company or "").strip().lower(),
+        re.sub(r"\s+", " ", position or "").strip().lower(),
+    )
+
+
 def gather():
     """Fetch all sources and dedup by (company, position). First source wins."""
     rows = []
@@ -154,7 +162,7 @@ def gather():
     seen = set()
     deduped = []
     for r in rows:
-        key = (r["company"].lower().strip(), r["position"].lower().strip())
+        key = _key(r["company"], r["position"])
         if key in seen:
             continue
         seen.add(key)
@@ -194,12 +202,18 @@ def get_worksheet():
 
 
 def existing_keys(worksheet):
-    """Set of (company, position) already present in the sheet (skips header row)."""
-    companies = worksheet.col_values(1)[1:]
-    positions = worksheet.col_values(2)[1:]
+    """Set of (company, position) keys already in the sheet (skips header row).
+
+    Reads whole rows so Company/Position stay aligned even when the columns have
+    different numbers of trailing blank cells (e.g. dropdown-only rows below the data).
+    """
     keys = set()
-    for c, p in zip(companies, positions):
-        keys.add((c.lower().strip(), p.lower().strip()))
+    for row in worksheet.get_all_values()[1:]:
+        company = row[0] if len(row) > 0 else ""
+        position = row[1] if len(row) > 1 else ""
+        if not company and not position:
+            continue
+        keys.add(_key(company, position))
     return keys
 
 
@@ -228,8 +242,7 @@ def main():
 
     worksheet = get_worksheet()
     have = existing_keys(worksheet)
-    new_items = [it for it in items
-                 if (it["company"].lower().strip(), it["position"].lower().strip()) not in have]
+    new_items = [it for it in items if _key(it["company"], it["position"]) not in have]
 
     if not new_items:
         print("Nothing new to add - all fetched listings are already in the sheet.")
