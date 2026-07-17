@@ -14,9 +14,11 @@ uses whatever it offers -- Simplify's category/degrees fields, and the title tex
 (the only signal vanshb03 and speedyapply provide). See keep_role().
 
 Sheet columns (in order):
-  Company | Position | Date Applied | Application Status | Details | Applicant Portal
+  Company | Position | Date Applied | Status | Link
 
-Date Applied and Application Status are left blank so you fill them in as you apply.
+New rows fill in Company (with the posting date appended, e.g. "Meta (7/2/26)"),
+Position, and Link; Date Applied and Status are left blank so you fill them in as
+you apply.
 
 Usage:
   python fetch_internships.py --dry-run   # preview rows, no Google calls
@@ -33,8 +35,8 @@ import requests
 
 # --- Config ---------------------------------------------------------------
 
-SPREADSHEET_ID = "1S5d7ZyV57iVV4ZxI3JUgnBmsSNy23lvFxP0RmUy9RcU"
-WORKSHEET_INDEX = 0          # first tab (the one in the screenshot)
+SPREADSHEET_ID = "1xDU8Yr1bJbxvAtpYs6RDg61-tEnN2r2ikDxGXulmLH4"
+WORKSHEET_TITLE = "tracker"  # the tab to append to (matched case-insensitively)
 DAYS = 7                     # "last week"
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
@@ -324,7 +326,12 @@ def get_worksheet():
             fh.write(creds.to_json())
 
     client = gspread.authorize(creds)
-    return client.open_by_key(SPREADSHEET_ID).get_worksheet(WORKSHEET_INDEX)
+    spreadsheet = client.open_by_key(SPREADSHEET_ID)
+    for ws in spreadsheet.worksheets():
+        if ws.title.strip().lower() == WORKSHEET_TITLE.lower():
+            return ws
+    titles = ", ".join(repr(ws.title) for ws in spreadsheet.worksheets())
+    sys.exit(f"No worksheet named {WORKSHEET_TITLE!r} found. Tabs present: {titles}")
 
 
 def existing_keys(worksheet):
@@ -350,8 +357,9 @@ def company_display(item):
 
 
 def to_row(item):
-    # Company | Position | Date Applied | Application Status | Details | Applicant Portal
-    return [company_display(item), item["position"], "", "", item["details"], item["portal"]]
+    # Company | Position | Date Applied | Status | Link
+    # Company carries the posting date; Position and Link are filled; the rest blank.
+    return [company_display(item), item["position"], "", "", item["details"]]
 
 
 # --- Main -----------------------------------------------------------------
