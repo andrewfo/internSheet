@@ -307,13 +307,23 @@ def get_worksheet():
     from google_auth_oauthlib.flow import InstalledAppFlow
     import os
 
+    from google.auth.exceptions import RefreshError
+
     creds = None
     if os.path.exists("token.json"):
         creds = Credentials.from_authorized_user_file("token.json", SCOPES)
     if not creds or not creds.valid:
+        refreshed = False
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+                refreshed = True
+            except RefreshError:
+                # Refresh tokens for unpublished ("Testing") OAuth apps expire after
+                # 7 days, and revoked tokens fail the same way. Fall back to a fresh
+                # interactive login rather than crashing.
+                creds = None
+        if not refreshed:
             if not os.path.exists("credentials.json"):
                 sys.exit(
                     "Missing credentials.json. Create an OAuth client ID (Desktop app) in Google "
